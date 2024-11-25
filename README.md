@@ -195,6 +195,15 @@ python sample.py \
 
 If you'd like to sample from a model you trained, use the `--out_dir` to point the code appropriately. You can also prompt the model with some text from a file, e.g. ```python sample.py --start=FILE:prompt.txt```.
 
+## Evaluation 
+
+The evaluate.py script is designed to compute the average loss (in nats) and bits per character (BPC) on a given validation dataset. These metrics help gauge model performance, especially for character-level language models.
+
+
+```sh
+python evaluate.py --checkpoint out-enwik8-char/ckpt.pt
+```
+
 ## efficiency notes
 
 For simple model benchmarking and profiling, `bench.py` might be useful. It's identical to what happens in the meat of the training loop of `train.py`, but omits much of the other complexities.
