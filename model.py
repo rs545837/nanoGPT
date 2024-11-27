@@ -184,50 +184,94 @@ class CausalSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    """ MLP with SwiGLU activation (better than GELU) """
+    """ MLP with configurable activation (SwiGLU or GELU) """
     
     def __init__(self, config):
         super().__init__()
-        self.up_proj = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.gate_proj = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.down_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        if config.use_swiglu:
+            # SwiGLU: needs 4/3 times the dimensions to maintain similar parameter count
+            hidden_dim = int(4 * config.n_embd * 4/3)
+            self.up_proj = nn.Linear(config.n_embd, hidden_dim, bias=config.bias)
+            self.gate_proj = nn.Linear(config.n_embd, hidden_dim, bias=config.bias)
+            self.down_proj = nn.Linear(hidden_dim, config.n_embd, bias=config.bias)
+        else:
+            # Traditional GELU MLP
+            self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+            self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+            self.act = nn.GELU()
+            
         self.dropout = nn.Dropout(config.dropout)
+        self.use_swiglu = config.use_swiglu
         
         # Initialize with smaller weights for better stability
         scale = 0.02
-        torch.nn.init.normal_(self.up_proj.weight, mean=0.0, std=scale)
-        torch.nn.init.normal_(self.gate_proj.weight, mean=0.0, std=scale)
-        torch.nn.init.normal_(self.down_proj.weight, mean=0.0, std=scale/math.sqrt(2 * config.n_layer))
+        if self.use_swiglu:
+            torch.nn.init.normal_(self.up_proj.weight, mean=0.0, std=scale)
+            torch.nn.init.normal_(self.gate_proj.weight, mean=0.0, std=scale)
+            torch.nn.init.normal_(self.down_proj.weight, mean=0.0, std=scale/math.sqrt(2 * config.n_layer))
+        else:
+            torch.nn.init.normal_(self.c_fc.weight, mean=0.0, std=scale)
+            torch.nn.init.normal_(self.c_proj.weight, mean=0.0, std=scale/math.sqrt(2 * config.n_layer))
     
     def forward(self, x):
-        # SwiGLU activation
-        up = self.up_proj(x)
-        gate = F.silu(self.gate_proj(x))  # SiLU (Swish) activation
-        x = up * gate
-        x = self.down_proj(x)
-        x = self.dropout(x)
-        return x
+        if self.use_swiglu:
+            # SwiGLU activation
+            up = self.up_proj(x)
+            gate = F.silu(self.gate_proj(x))
+            x = up * gate
+            x = self.down_proj(x)
+        else:
+            # Traditional GELU MLP
+            x = self.c_fc(x)
+            x = self.act(x)
+            x = self.c_proj(x)
+            
+        return self.dropout(x)
 
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.use_parallel_residual = config.use_parallel_residual
+        self.use_scaled_residual = config.use_scaled_residual
+        
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
         
-        # Residual scaling (like in PaLM)
-        self.resid_attn_scale = 1 / math.sqrt(2 * config.n_layer)
-        self.resid_mlp_scale = 1 / math.sqrt(2 * config.n_layer)
+        if self.use_scaled_residual:
+            # Residual scaling factors (like in PaLM)
+            self.resid_attn_scale = 1 / math.sqrt(2 * config.n_layer)
+            self.resid_mlp_scale = 1 / math.sqrt(2 * config.n_layer)
+        else:
+            self.resid_attn_scale = 1.0
+            self.resid_mlp_scale = 1.0
+            
+        if self.use_parallel_residual:
+            # Additional layer norm for parallel residual connection
+            self.ln_parallel = LayerNorm(config.n_embd, bias=config.bias)
         
     def forward(self, x):
-        # Pre-normalization and scaled residual connections
-        attn_output = self.attn(self.ln_1(x))
-        x = x + self.resid_attn_scale * attn_output
-        
-        mlp_output = self.mlp(self.ln_2(x))
-        x = x + self.resid_mlp_scale * mlp_output
+        if self.use_parallel_residual:
+            # Parallel residual connections (like PaLM)
+            normalized = self.ln_parallel(x)
+            attn_output = self.attn(self.ln_1(x))
+            mlp_output = self.mlp(self.ln_2(x))
+            
+            if self.use_scaled_residual:
+                x = x + self.resid_attn_scale * attn_output + self.resid_mlp_scale * mlp_output
+            else:
+                x = x + attn_output + mlp_output
+        else:
+            # Sequential residual connections (traditional transformer)
+            attn_output = self.attn(self.ln_1(x))
+            x = x + self.resid_attn_scale * attn_output
+            
+            mlp_output = self.mlp(self.ln_2(x))
+            x = x + self.resid_mlp_scale * mlp_output
+            
         return x
+
 
 @dataclass
 class GPTConfig:
