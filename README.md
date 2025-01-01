@@ -236,6 +236,6 @@ For more questions/discussions feel free to stop by **#nanoGPT** on Discord:
 All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.com), my favorite Cloud GPU provider. Thank you Lambda labs for sponsoring nanoGPT!
 
 
-| model            | params | test loss | perplexity (bpc) |
-| ---------------- | ------ | --------- | ---------------- |
-|      ROPE        | 20.03M |  0.9603   |      1.3854      |
+| model            | params | test loss | perplexity (bpc) |  Steps |
+| ---------------- | ------ | --------- | ---------------- | ------ |
+|      ROPE        | 20.03M |  0.9603   |      1.3767      | 100000 |
