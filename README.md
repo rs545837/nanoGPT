@@ -239,3 +239,4 @@ All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.
 | model            | params | test loss | perplexity (bpc) |  Steps |
 | ---------------- | ------ | --------- | ---------------- | ------ |
 |      ROPE        | 20.03M |  0.9603   |      1.3767      | 100000 |
+|      ROPE        | 20.03M |     |            | 5000 |
